@@ -5,10 +5,13 @@
 package msgbus
 
 import (
+	"io/ioutil"
+	"log"
+	"os"
 	"testing"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	mqtt "github.com/maruel/paho.mqtt.golang"
 )
 
 func TestNewMQTT_fail(t *testing.T) {
@@ -19,6 +22,11 @@ func TestNewMQTT_fail(t *testing.T) {
 }
 
 func TestMQTT(t *testing.T) {
+	// Can't be t.Parallel() due to log.SetOutput().
+	if !testing.Verbose() {
+		log.SetOutput(ioutil.Discard)
+		defer log.SetOutput(os.Stderr)
+	}
 	c := clientFake{}
 	m := mqttBus{client: &c}
 

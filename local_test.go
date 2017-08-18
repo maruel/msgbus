@@ -5,6 +5,9 @@
 package msgbus
 
 import (
+	"io/ioutil"
+	"log"
+	"os"
 	"testing"
 )
 
@@ -124,7 +127,11 @@ func TestNew_UnSubscribe_Cap(t *testing.T) {
 }
 
 func TestNew_Err(t *testing.T) {
-	t.Parallel()
+	// Can't be t.Parallel() due to log.SetOutput().
+	if !testing.Verbose() {
+		log.SetOutput(ioutil.Discard)
+		defer log.SetOutput(os.Stderr)
+	}
 	b := New()
 
 	if err := b.Publish(Message{Payload: make([]byte, 1)}, ExactlyOnce, false); err == nil {
