@@ -18,8 +18,8 @@ import (
 //
 // The connection timeouts are fine tuned for a LAN.
 //
-// This main purpose of this library is to hide the horror that
-// paho.mqtt.golang is.
+// This main purpose of this library is to create a layer that is simpler, more
+// usable and more Go-idiomatic than paho.mqtt.golang.
 func NewMQTT(server, clientID, user, password string, will Message) (Bus, error) {
 	opts := mqtt.NewClientOptions().AddBroker(server)
 	opts.ClientID = clientID
@@ -47,7 +47,7 @@ func NewMQTT(server, clientID, user, password string, will Message) (Bus, error)
 
 //
 
-// mqttBus main purpose is to hide the horror that paho.mqtt.golang is.
+// mqttBus main purpose is to hide the complex thing that paho.mqtt.golang is.
 //
 // This Bus is thread safe.
 type mqttBus struct {
