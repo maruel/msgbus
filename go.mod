@@ -1,4 +1,4 @@
-module github.com/maruel/msgbus
+module github.com/maruel/msgbus/v3
 
 go 1.11
 
