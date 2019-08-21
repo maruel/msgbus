@@ -2,25 +2,23 @@
 // Use of this source code is governed under the Apache License, Version 2.0
 // that can be found in the LICENSE file.
 
-package msgbus_test
+package msgbus
 
 import (
 	"context"
 	"fmt"
 	"log"
 	"os"
-
-	"github.com/maruel/msgbus/v3"
 )
 
 func ExampleNew() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b := msgbus.New()
-	c := make(chan msgbus.Message)
+	b := New()
+	c := make(chan Message)
 	go func() {
 		defer close(c)
-		if err := b.Subscribe(ctx, "#", msgbus.BestEffort, c); err != nil {
+		if err := b.Subscribe(ctx, "#", BestEffort, c); err != nil {
 			log.Fatal(err)
 		}
 	}()
@@ -29,7 +27,7 @@ func ExampleNew() {
 		log.Fatal(msg)
 	}
 
-	if err := b.Publish(msgbus.Message{Topic: "sensor", Payload: []byte("ON"), Retained: true}, msgbus.BestEffort); err != nil {
+	if err := b.Publish(Message{Topic: "sensor", Payload: []byte("ON"), Retained: true}, BestEffort); err != nil {
 		log.Fatal(err)
 	}
 	msg := <-c
@@ -43,15 +41,15 @@ func ExampleNew() {
 }
 
 func Example() {
-	b := msgbus.New()
+	b := New()
 	base := "homeassistant"
 	var err error
 	// Now all Publish() calls topics are based on "homeassistant/".
-	if b, err = msgbus.RebasePub(b, base); err != nil {
+	if b, err = RebasePub(b, base); err != nil {
 		log.Fatal(err)
 	}
 	// Now all Subscribe() calls topics are based on "homeassistant/".
-	if b, err = msgbus.RebaseSub(b, base); err != nil {
+	if b, err = RebaseSub(b, base); err != nil {
 		log.Fatal(err)
 	}
 
@@ -61,17 +59,17 @@ func Example() {
 }
 
 func ExampleNewMQTT() {
-	will := msgbus.Message{Topic: "alive", Payload: []byte("NO"), Retained: true}
+	will := Message{Topic: "alive", Payload: []byte("NO"), Retained: true}
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal(err)
 	}
-	b, err := msgbus.NewMQTT("tcp://localhost:1883", hostname, "user", "pass", will, false)
+	b, err := NewMQTT("tcp://localhost:1883", hostname, "user", "pass", will, false)
 	if err != nil {
 		log.Fatal(err)
 	}
-	msg := msgbus.Message{Topic: "alive", Payload: []byte("YES"), Retained: true}
-	if err := b.Publish(msg, msgbus.BestEffort); err != nil {
+	msg := Message{Topic: "alive", Payload: []byte("YES"), Retained: true}
+	if err := b.Publish(msg, BestEffort); err != nil {
 		log.Fatal(err)
 	}
 	if err := b.Close(); err != nil {
