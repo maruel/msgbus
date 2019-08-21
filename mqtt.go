@@ -29,6 +29,10 @@ import (
 //
 // This main purpose of this library is to create a layer that is simpler, more
 // usable and more Go-idiomatic than paho.mqtt.golang.
+//
+// See
+// https://godoc.org/github.com/eclipse/paho.mqtt.golang#ClientOptions.AddBroker
+// for the accepted server format.
 func NewMQTT(server, clientID, user, password string, will Message, order bool) (Bus, error) {
 	opts := mqtt.NewClientOptions().AddBroker(server)
 	opts.ClientID = clientID

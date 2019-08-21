@@ -10,7 +10,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/maruel/msgbus"
+	"github.com/maruel/msgbus/v3"
 )
 
 func ExampleNew() {
