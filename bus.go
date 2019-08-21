@@ -5,13 +5,15 @@
 package msgbus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // QOS defines the quality of service to use when publishing and subscribing to
@@ -53,7 +55,7 @@ type Message struct {
 	Topic string
 	// Payload is the application specific data.
 	//
-	// Publishing a message with no Payload deleted a retained Topic, and has no
+	// Publishing a message with no Payload deletes a retained Topic, and has no
 	// effect on non-retained topic.
 	Payload []byte
 	// Retained signifies that the message is permanent until explicitly changed.
@@ -81,79 +83,14 @@ type Bus interface {
 	// qos ExactlyOnce is used.
 	Publish(msg Message, qos QOS) error
 
-	// Subscribe sends updates to this topic query through the returned channel.
-	Subscribe(topicQuery string, qos QOS) (<-chan Message, error)
-
-	// Unsubscribe removes a previous subscription.
+	// Subscribe sends updates to this topic query through the provided channel.
 	//
-	// Trying to unsubscribe from an invalid topic or a topic not currently
-	// subscribed is ignored.
+	// It blocks until the context is canceled. Returns an error if subscription
+	// failed.
 	//
-	// BUG: while Subscribe() can be called multiple times with a topic query, a
-	// single Unsubscribe() call will unregister all subscriptions.
-	Unsubscribe(topicQuery string)
-}
-
-// Log returns a Bus that logs all operations done on it, via log standard
-// package.
-func Log(b Bus) Bus {
-	return &logging{b}
-}
-
-// RebasePub rebases a Bus when publishing messages.
-//
-// All Message published have their Topic prefixed with root.
-//
-// Messages retrieved are unaffected.
-//
-// Returns nil if root is an invalid topic or if it is a topic query.
-//
-// It is possible to publish a message topic outside of root with:
-//  - "../" to backtrack closer to root
-//  - "//" to ignore the root
-func RebasePub(b Bus, root string) Bus {
-	if len(root) != 0 && root[len(root)-1] != '/' {
-		root += "/"
-	}
-	t := root[:len(root)-1]
-	p, err := parseTopic(t)
-	if err != nil {
-		log.Printf("RebasePub(%s, %q): %v", b, t, err)
-		return nil
-	}
-	if p.isQuery() {
-		log.Printf("RebasePub(%s, %q): cannot use topic query", b, t)
-		return nil
-	}
-	return &rebasePublisher{b, root}
-}
-
-// RebaseSub rebases a Bus when subscribing or getting topics.
-//
-// All Message retrieved have their Topic prefix root stripped.
-//
-// Messages published are unaffected.
-//
-// Returns nil if root is an invalid topic or if it is a topic query.
-//
-// It is possible to subscribe to a message topic outside of root with:
-//  - "../" to backtrack closer to root
-//  - "//" to ignore the root
-func RebaseSub(b Bus, root string) Bus {
-	if len(root) != 0 && root[len(root)-1] != '/' {
-		root += "/"
-	}
-	t := root[:len(root)-1]
-	p, err := parseTopic(t)
-	if err != nil {
-		log.Printf("RebaseSub(%s, %q): %v", b, t, err)
-		return nil
-	}
-	if p.isQuery() {
-		log.Printf("RebaseSub(%s, %q): cannot use topic query", b, t)
-		return nil
-	}
-	return &rebaseSubscriber{b, root}
+	// Upon subscription, it sends an empty message that can be ignored, to
+	// enable synchronizing with other systems.
+	Subscribe(ctx context.Context, topicQuery string, qos QOS, c chan<- Message) error
 }
 
 // Retained retrieves all matching messages for one or multiple topics.
@@ -171,6 +108,7 @@ func Retained(b Bus, d time.Duration, topic ...string) (map[string][]byte, error
 			return nil, fmt.Errorf("invalid topic %q: %v", t, err)
 		}
 		if p.isQuery() {
+			// TODO(maruel): Revisit this decision, this can be useful!
 			return nil, fmt.Errorf("cannot use topic query %q", t)
 		}
 		for j := 0; j < i; j++ {
@@ -181,183 +119,79 @@ func Retained(b Bus, d time.Duration, topic ...string) (map[string][]byte, error
 		ps = append(ps, p)
 	}
 
-	// Subscribes to all topics concurrently. This reduces the effect of round
-	// trip latency.
-	type result struct {
-		c   <-chan Message
-		err error
-	}
-	channels := make(chan result, len(topic))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	group, ctx := errgroup.WithContext(ctx)
+
+	c := make(chan Message)
 	for _, t := range topic {
-		go func(t string) {
-			c, err := b.Subscribe(t, MinOnce)
-			channels <- result{c, err}
-		}(t)
-	}
-
-	// Ensure all topics are unsubscribed even in case of error. This also
-	// ensures the channels are closed, so the goroutine started below do not
-	// leak.
-	defer func() {
-		for _, t := range topic {
-			b.Unsubscribe(t)
-		}
-	}()
-
-	// Look at all topic subscription to ensures they all succeeded.
-	master := make(chan Message)
-	for range topic {
-		r := <-channels
-		if r.err != nil {
-			return nil, r.err
-		}
-		go func(c <-chan Message) {
-			v, ok := <-c
-			if !ok || !v.Retained {
-				return
-			}
-			master <- v
-		}(r.c)
+		t := t
+		group.Go(func() error {
+			return b.Subscribe(ctx, t, MinOnce, c)
+		})
 	}
 
 	// Retrieve results.
 	out := map[string][]byte{}
-	for loop := true; loop && len(out) < len(topic); {
-		// Reset the timer after every message retrieved.
-		a := time.After(d)
+	done := ctx.Done()
+	t := time.NewTimer(d)
+loop:
+	for {
 		select {
-		case v := <-master:
-			out[v.Topic] = v.Payload
-		case <-a:
-			loop = false
+		case msg := <-c:
+			// Ignore the initial message.
+			if len(msg.Topic) == 0 && len(msg.Payload) == 0 {
+				continue
+			}
+			// Ignore non-retained message.
+			if msg.Retained {
+				out[msg.Topic] = msg.Payload
+			}
+			// Reset the timer after every message retrieved.
+			if !t.Stop() {
+				// This is impossible to deterministically add test coverage for this line.
+				<-t.C
+			}
+		case <-t.C:
+			cancel()
+		case <-done:
+			break loop
+		}
+		t.Reset(d)
+	}
+
+	cancel()
+
+	// Empty any late message, this can happen in case of a subscription error,
+	// which is unlikely.
+loop2:
+	for {
+		select {
+		// Hard to cover in unit test.
+		case msg := <-c:
+			if len(msg.Topic) == 0 && len(msg.Payload) == 0 {
+				continue
+			}
+			// Ignore non-retained message, including the initial empty message.
+			if msg.Retained {
+				out[msg.Topic] = msg.Payload
+			}
+		default:
+			break loop2
 		}
 	}
-	return out, nil
+	return out, group.Wait()
 }
 
 // Private code.
 
-type logging struct {
-	Bus
-}
-
-func (l *logging) Close() error {
-	log.Printf("%s.Close()", l)
-	return l.Bus.Close()
-}
-
-func (l *logging) Publish(msg Message, qos QOS) error {
-	log.Printf("%s.Publish({%s, %q, %t}, %s)", l, msg.Topic, string(msg.Payload), msg.Retained, qos)
-	return l.Bus.Publish(msg, qos)
-}
-
-func (l *logging) Subscribe(topicQuery string, qos QOS) (<-chan Message, error) {
-	log.Printf("%s.Subscribe(%s, %s)", l, topicQuery, qos)
-	c, err := l.Bus.Subscribe(topicQuery, qos)
-	if err != nil {
-		return c, err
-	}
-	c2 := make(chan Message)
-	go func() {
-		defer close(c2)
-		for msg := range c {
-			log.Printf("%s <- Message{%s, %q}", l, msg.Topic, string(msg.Payload))
-			c2 <- msg
-		}
-	}()
-	return c2, nil
-}
-
-func (l *logging) Unsubscribe(topicQuery string) {
-	log.Printf("%s.Unsubscribe(%s)", l, topicQuery)
-	l.Bus.Unsubscribe(topicQuery)
-}
-
-// Rebase support.
-
-type rebasePublisher struct {
-	Bus
-	root string
-}
-
-func (r *rebasePublisher) String() string {
-	return fmt.Sprintf("%s/%s", r.Bus, r.root)
-}
-
-func (r *rebasePublisher) Publish(msg Message, qos QOS) error {
-	msg.Topic = mergeTopic(r.root, msg.Topic)
-	return r.Bus.Publish(msg, qos)
-}
-
-type rebaseSubscriber struct {
-	Bus
-	root string
-}
-
-func (r *rebaseSubscriber) String() string {
-	return fmt.Sprintf("%s/%s", r.Bus, r.root)
-}
-
-func (r *rebaseSubscriber) Subscribe(topicQuery string, qos QOS) (<-chan Message, error) {
-	if strings.HasPrefix(topicQuery, "//") {
-		return r.Bus.Subscribe(topicQuery[2:], qos)
-	}
-	// BUG: Support mergeTopic().
-	actual := r.root + topicQuery
-	p, err := parseTopic(actual)
-	if err != nil {
-		return nil, err
-	}
-	c, err := r.Bus.Subscribe(actual, qos)
-	if err != nil {
-		return nil, err
-	}
-	c2 := make(chan Message)
-	offset := len(r.root)
-	go func() {
-		defer close(c2)
-		// Translate the topics.
-		for msg := range c {
-			if !p.isQuery() && !p.match(msg.Topic) {
-				panic(fmt.Errorf("bus: unexpected topic prefix %q, expected %q", msg.Topic, actual))
-			}
-			c2 <- Message{Topic: msg.Topic[offset:], Payload: msg.Payload, Retained: msg.Retained}
-		}
-	}()
-	return c2, nil
-}
-
-func (r *rebaseSubscriber) Unsubscribe(topicQuery string) {
-	if strings.HasPrefix(topicQuery, "//") {
-		r.Bus.Unsubscribe(topicQuery[2:])
-		return
-	}
-	// BUG: Support mergeTopic().
-	r.Bus.Unsubscribe(r.root + topicQuery)
-}
-
-// Topic parsing.
-
+// mergeTopic is used by RebasePub.
+//
+// root is guaranteed to not be empty and end with "/".
+// topic is guaranteed to not be empty.
 func mergeTopic(root, topic string) string {
-	if strings.HasPrefix(topic, "//") {
-		return topic[2:]
-	}
-	for strings.HasPrefix(topic, "../") {
-		if len(root) == 0 {
-			panic(topic)
-		}
-		i := strings.LastIndexByte(root, '/')
-		root = root[:i]
-		topic = topic[3:]
-	}
-	if len(topic) == 0 {
-		panic(root)
-	}
-	if topic[0] == '/' {
-		panic(root)
-	}
-	if len(root) != 0 && root[len(root)-1] != '/' {
-		root += "/"
+	if len(root) == 0 || len(topic) == 0 || strings.HasPrefix(topic, "/") {
+		return ""
 	}
 	return root + topic
 }
@@ -380,10 +214,6 @@ func parseTopic(topic string) (parsedTopic, error) {
 		return nil, err
 	}
 	return p, nil
-}
-
-func (p parsedTopic) String() string {
-	return strings.Join(p, "/")
 }
 
 func (p parsedTopic) Validate() error {
@@ -409,18 +239,6 @@ func (p parsedTopic) isQuery() bool {
 		}
 	}
 	return false
-}
-
-func (p parsedTopic) isEqual(other parsedTopic) bool {
-	if len(other) != len(p) {
-		return false
-	}
-	for i := range p {
-		if p[i] != other[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // match follows rules as defined at section 4.7:

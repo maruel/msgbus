@@ -5,8 +5,7 @@
 // Package msgbus implements a generic PubSub message bus that follows MQTT
 // guidelines.
 //
-// The main difference with MQTT topic is the support for relative message on
-// rebased bus. See RebasePub() for more details.
+// It uses https://github.com/eclipse/paho.mqtt.golang under the hood.
 //
 // Spec
 //

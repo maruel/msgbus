@@ -5,13 +5,14 @@
 package msgbus
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
-	mqtt "github.com/maruel/paho.mqtt.golang"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // NewMQTT returns an initialized active MQTT connection.
@@ -60,6 +61,7 @@ func NewMQTT(server, clientID, user, password string, will Message, order bool) 
 type mqttBus struct {
 	client mqtt.Client
 	server string
+	wg     sync.WaitGroup
 
 	mu               sync.Mutex
 	disconnectedOnce bool
@@ -75,6 +77,7 @@ func (m *mqttBus) String() string {
 // called, the will message in NewMQTT() will be activated.
 func (m *mqttBus) Close() error {
 	m.client.Disconnect(1000)
+	m.wg.Wait()
 	m.client = nil
 	return nil
 }
@@ -88,39 +91,52 @@ func (m *mqttBus) Publish(msg Message, qos QOS) error {
 	if p.isQuery() {
 		return errors.New("cannot publish to a topic query")
 	}
+	m.wg.Add(1)
 	token := m.client.Publish(msg.Topic, byte(qos), msg.Retained, msg.Payload)
 	if qos > BestEffort {
 		token.Wait()
 	}
+	m.wg.Done()
 	return token.Error()
 }
 
-func (m *mqttBus) Subscribe(topicQuery string, qos QOS) (<-chan Message, error) {
+func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c chan<- Message) error {
 	// Quick local check.
 	if _, err := parseTopic(topicQuery); err != nil {
-		return nil, err
+		return err
 	}
 
-	c := make(chan Message)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := ctx.Done()
+	m.wg.Add(1)
 	token := m.client.Subscribe(topicQuery, byte(qos), func(client mqtt.Client, msg mqtt.Message) {
-		c <- Message{Topic: msg.Topic(), Payload: msg.Payload(), Retained: msg.Retained()}
+		select {
+		case <-done:
+			// Context was canceled, skip on sending message.
+		case c <- Message{Topic: msg.Topic(), Payload: msg.Payload(), Retained: msg.Retained()}:
+		}
 	})
-	token.Wait()
-	return c, token.Error()
-}
+	go func() {
+		token.Wait()
+		cancel()
+	}()
 
-func (m *mqttBus) Unsubscribe(topicQuery string) {
-	// Quick local check.
-	if _, err := parseTopic(topicQuery); err != nil {
-		log.Printf("%s.Unsubscribe(%s): %v", m, topicQuery, err)
-		return
-	}
-
-	token := m.client.Unsubscribe(topicQuery)
-	token.Wait()
 	if err := token.Error(); err != nil {
-		log.Printf("%s.Unsubscribe(%s): %v", m, topicQuery, err)
+		return err
 	}
+
+	// Signal that subscription is complete.
+	select {
+	case <-done:
+	case c <- Message{}:
+	}
+	<-done
+
+	token = m.client.Unsubscribe(topicQuery)
+	token.Wait()
+	m.wg.Done()
+	return token.Error()
 }
 
 func (m *mqttBus) unexpectedMessage(c mqtt.Client, msg mqtt.Message) {

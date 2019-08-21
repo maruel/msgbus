@@ -5,10 +5,8 @@
 package msgbus
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"log"
-	"sort"
 	"sync"
 )
 
@@ -29,6 +27,7 @@ func (l *local) String() string {
 	return "LocalBus"
 }
 
+// Close waits for all the internal goroutines to be done.
 func (l *local) Close() error {
 	l.mu.Lock()
 	subs := l.subscribers
@@ -36,6 +35,7 @@ func (l *local) Close() error {
 	l.subscribers = nil
 	l.mu.Unlock()
 
+	// Synchronously break all pending subscription.
 	for _, s := range subs {
 		s.closeSub()
 	}
@@ -53,6 +53,7 @@ func (l *local) Publish(msg Message, qos QOS) error {
 	subscribers := func() []*subscription {
 		l.mu.Lock()
 		defer l.mu.Unlock()
+		// First handle retained message.
 		if len(msg.Payload) == 0 {
 			delete(l.persistentTopics, msg.Topic)
 			return nil
@@ -62,7 +63,15 @@ func (l *local) Publish(msg Message, qos QOS) error {
 			copy(b, msg.Payload)
 			l.persistentTopics[msg.Topic] = b
 		}
-		return l.getSubscribers(msg.Topic)
+
+		// Now get the valid subscribers.
+		var out []*subscription
+		for i := range l.subscribers {
+			if l.subscribers[i].topicQuery.match(msg.Topic) {
+				out = append(out, l.subscribers[i])
+			}
+		}
+		return out
 	}()
 
 	// Do the rest unlocked.
@@ -71,30 +80,36 @@ func (l *local) Publish(msg Message, qos QOS) error {
 		var wg sync.WaitGroup
 		for i := range subscribers {
 			wg.Add(1)
+			subscribers[i].wg.Add(1)
 			go func(s *subscription) {
-				defer wg.Done()
 				s.publish(msg)
+				wg.Done()
 			}(subscribers[i])
 		}
 		wg.Wait()
-	}
-
-	// Asynchronous.
-	for i := range subscribers {
-		go subscribers[i].publish(msg)
+	} else {
+		// Asynchronous.
+		for i := range subscribers {
+			subscribers[i].wg.Add(1)
+			go subscribers[i].publish(msg)
+		}
 	}
 	return nil
 }
 
-func (l *local) Subscribe(topicQuery string, qos QOS) (<-chan Message, error) {
-	// QOS is ignored. Eventually it could be used to make the channel buffered.
+func (l *local) Subscribe(ctx context.Context, topicQuery string, qos QOS, c chan<- Message) error {
+	// QOS is ignored.
 	p, err := parseTopic(topicQuery)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	s := &subscription{topicQuery: p, channel: make(chan Message)}
-	c := s.channel
-	topics := func() []*Message {
+
+	// Subscribe and retrieve retained topics.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := ctx.Done()
+	s := &subscription{topicQuery: p, c: c, done: done, cancel: cancel}
+	msgs := func() []*Message {
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		l.subscribers = append(l.subscribers, s)
@@ -108,137 +123,80 @@ func (l *local) Subscribe(topicQuery string, qos QOS) (<-chan Message, error) {
 		return out
 	}()
 
-	// Asynchronous.
-	go func() {
-		for _, t := range topics {
-			c <- *t
-		}
-	}()
-	return c, nil
-}
-
-func (l *local) Unsubscribe(topicQuery string) {
-	p, err := parseTopic(topicQuery)
-	if err != nil {
-		log.Printf("%s.Unsubscribe(%s): %v", l, topicQuery, err)
-		return
+	// Synchronously send an empty message to signal subscription is completed.
+	s.wg.Add(1)
+	if !s.publish(Message{}) {
+		return nil
 	}
-	subscribers := func() []*subscription {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		var out []*subscription
-		for i := 0; i < len(l.subscribers); {
-			if l.subscribers[i].topicQuery.isEqual(p) {
-				out = append(out, l.subscribers[i])
-				copy(l.subscribers[i:], l.subscribers[i+1:])
-				l.subscribers = l.subscribers[:len(l.subscribers)-1]
-			} else {
-				i++
-			}
-		}
-		// Compact array if necessary.
-		if cap(l.subscribers) > 16 && cap(l.subscribers) >= 2*len(l.subscribers) {
-			s := l.subscribers
-			l.subscribers = make([]*subscription, len(s))
-			copy(l.subscribers, s)
-		}
-		return out
-	}()
-	for _, s := range subscribers {
-		s.closeSub()
-	}
-}
 
-// dump returns the internal state.
-func (l *local) dump() string {
+	// Synchronously send retained topics.
+	for _, msg := range msgs {
+		s.wg.Add(1)
+		if !s.publish(*msg) {
+			return nil
+		}
+	}
+
+	// The streaming of items is done via Publish() implementation.
+	<-done
+
+	// Unsubscribe.
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := "Persistent topics:\n"
-	topics := make([]string, 0, len(l.persistentTopics))
-	for t := range l.persistentTopics {
-		topics = append(topics, t)
-	}
-	sort.Strings(topics)
-	for _, t := range topics {
-		out += fmt.Sprintf("- %s: %s\n", t, l.persistentTopics[t])
-	}
-	out += "Subscriptions:\n"
-	for _, s := range l.subscribers {
-		out += "- " + s.dump() + "\n"
-	}
-	return out
-}
-
-func (l *local) getSubscribers(t string) []*subscription {
-	// Must be called with lock held.
-	var out []*subscription
-	for i := range l.subscribers {
-		if l.subscribers[i].topicQuery.match(t) {
-			out = append(out, l.subscribers[i])
+	for i, o := range l.subscribers {
+		// Comparing pointers.
+		if s == o {
+			copy(l.subscribers[i:], l.subscribers[i+1:])
+			l.subscribers = l.subscribers[:len(l.subscribers)-1]
+			break
 		}
 	}
-	return out
+	// Compact array if necessary.
+	if cap(l.subscribers) > 16 && cap(l.subscribers) >= 2*len(l.subscribers) {
+		s := l.subscribers
+		l.subscribers = make([]*subscription, len(s))
+		copy(l.subscribers, s)
+	}
+	return nil
 }
 
 //
 
 type subscription struct {
 	topicQuery parsedTopic
-
-	mu      sync.RWMutex
-	channel chan Message
+	wg         sync.WaitGroup
+	c          chan<- Message
+	done       <-chan struct{}
+	cancel     func()
 }
 
 // publish synchronously sends the message.
-func (s *subscription) publish(msg Message) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.channel == nil {
-		return
+//
+// s.wg.Add(1) must be called before.
+func (s *subscription) publish(msg Message) bool {
+	defer s.wg.Done()
+	// Sadly we have to do a quick check first if s.done is set but s.c closed,
+	// it may randomly crash with "panic: send on closed channel".
+	// Remove this and the unit tests will randomly crash.
+	select {
+	case <-s.done:
+		return false
+	default:
 	}
-	s.channel <- msg
+
+	select {
+	case <-s.done:
+		return false
+	case s.c <- msg:
+		return true
+	}
 }
 
+// closeSub cancels the context, which will set the done channel, and wait for
+// it to be done.
 func (s *subscription) closeSub() {
-	s.mu.RLock()
-	c := s.channel
-	s.mu.RUnlock()
-	if c == nil {
-		return
-	}
-
-	done := make(chan struct{})
-	var wg sync.WaitGroup
-	defer wg.Wait()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Empty the channel to unblock publish() call(s) if any.
-		for {
-			select {
-			case <-c:
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	s.mu.Lock()
-	defer func() {
-		s.mu.Unlock()
-		done <- struct{}{}
-	}()
-	if s.channel == nil {
-		return
-	}
-	// It's now guaranteed there's no pending publish() call.
-	close(s.channel)
-	s.channel = nil
-}
-
-// dump returns the internal state.
-func (s *subscription) dump() string {
-	return s.topicQuery.String()
+	s.cancel()
+	s.wg.Wait()
 }
 
 var _ Bus = &local{}

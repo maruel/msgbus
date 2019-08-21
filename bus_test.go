@@ -5,10 +5,6 @@
 package msgbus
 
 import (
-	"fmt"
-	"io/ioutil"
-	"log"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -30,156 +26,38 @@ func TestQOS_String(t *testing.T) {
 	}
 }
 
-func TestLog(t *testing.T) {
-	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
-		defer log.SetOutput(os.Stderr)
-	}
-	b := Log(New())
-	c, err := b.Subscribe("foo", BestEffort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Publish(Message{Topic: "foo", Payload: make([]byte, 1)}, BestEffort); err != nil {
-		t.Fatal(err)
-	}
-	if i := <-c; i.Topic != "foo" {
-		t.Fatalf("%s != foo", i.Topic)
-	}
-	b.Unsubscribe("foo")
-	if err := b.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestLog_Subscribe(t *testing.T) {
-	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
-		defer log.SetOutput(os.Stderr)
-	}
-	b := Log(New())
-	if _, err := b.Subscribe("", BestEffort); err == nil {
-		t.Fatal("bad topic")
-	}
-	if err := b.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRebasePub(t *testing.T) {
-	b := RebasePub(New(), "foo")
-	c, err := b.Subscribe("foo/bar", BestEffort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Publish(Message{Topic: "bar", Payload: []byte("yo"), Retained: true}, BestEffort); err != nil {
-		t.Fatal(err)
-	}
-	if i := <-c; i.Topic != "foo/bar" {
-		t.Fatalf("%s != foo/bar", i.Topic)
-	}
-	b.Unsubscribe("foo")
-	expected := map[string][]byte{"foo/bar": []byte("yo")}
-	if l, err := Retained(b, time.Second, "foo/bar"); err != nil || !reflect.DeepEqual(l, expected) {
-		t.Fatal(l, err)
-	}
-	if s := b.(fmt.Stringer).String(); s != "LocalBus/foo/" {
-		t.Fatal(s)
-	}
-	if err := b.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRebasePub_err(t *testing.T) {
-	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
-		defer log.SetOutput(os.Stderr)
-	}
-	if RebasePub(New(), "a\000") != nil {
-		t.Fatal("bad topic")
-	}
-	if RebasePub(New(), "#") != nil {
-		t.Fatal("can't use a query")
-	}
-}
-
-func TestRebaseSub(t *testing.T) {
-	b := RebaseSub(New(), "foo")
-	c, err := b.Subscribe("bar", BestEffort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Publish(Message{Topic: "foo/bar", Payload: []byte("yo"), Retained: true}, BestEffort); err != nil {
-		t.Fatal(err)
-	}
-	if i := <-c; i.Topic != "bar" {
-		t.Fatalf("%s != bar", i.Topic)
-	}
-	b.Unsubscribe("bar")
-	expected := map[string][]byte{"bar": []byte("yo")}
-	if l, err := Retained(b, time.Second, "bar"); err != nil || !reflect.DeepEqual(l, expected) {
-		t.Fatal(l, err)
-	}
-	if s := b.(fmt.Stringer).String(); s != "LocalBus/foo/" {
-		t.Fatal(s)
-	}
-	if err := b.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRebaseSub_err(t *testing.T) {
-	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
-		defer log.SetOutput(os.Stderr)
-	}
-	if RebaseSub(New(), "a\000") != nil {
-		t.Fatal("bad topic")
-	}
-	if RebaseSub(New(), "#") != nil {
-		t.Fatal("can't use a query")
-	}
-}
-
-func TestRebaseSub_root(t *testing.T) {
-	b := RebaseSub(New(), "foo")
-	c, err := b.Subscribe("//bar", BestEffort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Publish(Message{Topic: "bar", Payload: []byte("yo"), Retained: true}, BestEffort); err != nil {
-		t.Fatal(err)
-	}
-	if i := <-c; i.Topic != "bar" {
-		t.Fatalf("%s != bar", i.Topic)
-	}
-	b.Unsubscribe("//bar")
-	expected := map[string][]byte{"bar": []byte("yo")}
-	if l, err := Retained(b, time.Second, "//bar"); err != nil || !reflect.DeepEqual(l, expected) {
-		t.Fatal(l, err)
-	}
-	if err := b.Close(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRebaseSub_Err(t *testing.T) {
-	b := RebaseSub(New(), "foo")
-	if _, err := b.Subscribe("#/a", BestEffort); err == nil {
-		t.Fatal("bad topic")
-	}
-	if _, err := Retained(b, time.Second, "#/a"); err == nil {
-		t.Fatal("bad topic")
-	}
-}
-
 func TestRetained(t *testing.T) {
-	if _, err := Retained(nil, 0, "#"); err == nil {
-		t.Fatal("can't use query")
+	b := New()
+	if err := b.Publish(Message{Topic: "bar", Payload: []byte("yo"), Retained: true}, BestEffort); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := Retained(nil, 0, "a", "a"); err == nil {
-		t.Fatal("can't use same topic twice")
+	if err := b.Publish(Message{Topic: "baz", Payload: []byte("foo"), Retained: true}, BestEffort); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err := Retained(b, time.Millisecond, "bar", "baz")
+	if err != nil {
+		t.Fatal(l, err)
+	}
+	expected := map[string][]byte{"bar": []byte("yo"), "baz": []byte("foo")}
+	if !reflect.DeepEqual(l, expected) {
+		t.Fatalf("unexpected Retained: %v", l)
+	}
+
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetained_Err(t *testing.T) {
+	if _, err := Retained(nil, 0, ""); err == nil || err.Error() != "invalid topic \"\": empty topic" {
+		t.Fatalf("expected invalid topic; got %v", err)
+	}
+	if _, err := Retained(nil, 0, "#"); err == nil || err.Error() != "cannot use topic query \"#\"" {
+		t.Fatalf("expected can't use query; got %v", err)
+	}
+	if _, err := Retained(nil, 0, "a", "a"); err == nil || err.Error() != "cannot specify topic \"a\" twice" {
+		t.Fatalf("expected can't use same topic twice; got %v", err)
 	}
 }
 
