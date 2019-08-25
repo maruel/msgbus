@@ -44,11 +44,15 @@ func NewMQTT(server, clientID, user, password string, will Message, order bool) 
 	if len(will.Topic) != 0 {
 		opts.SetBinaryWill(will.Topic, will.Payload, byte(ExactlyOnce), true)
 	}
-	m := &mqttBus{server: server}
-	opts.OnConnect = m.onConnect
-	opts.OnConnectionLost = m.onConnectionLost
-	opts.DefaultPublishHandler = m.unexpectedMessage
-	m.client = mqtt.NewClient(opts)
+	ms := &mqttState{server: server}
+	opts.OnConnect = ms.onConnect
+	opts.OnConnectionLost = ms.onConnectionLost
+	opts.DefaultPublishHandler = ms.unexpectedMessage
+	return newMQTT(ms, mqtt.NewClient(opts))
+}
+
+func newMQTT(ms *mqttState, c mqtt.Client) (Bus, error) {
+	m := &mqttBus{client: c, ms: ms}
 	token := m.client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {
@@ -59,20 +63,47 @@ func NewMQTT(server, clientID, user, password string, will Message, order bool) 
 
 //
 
+type mqttState struct {
+	server           string
+	mu               sync.Mutex
+	disconnectedOnce bool
+}
+
+func (m *mqttState) String() string {
+	return fmt.Sprintf("MQTT{%s}", m.server)
+}
+
+func (m *mqttState) unexpectedMessage(c mqtt.Client, msg mqtt.Message) {
+	log.Printf("%s: Unexpected message %s", m, msg.Topic())
+}
+
+func (m *mqttState) onConnect(c mqtt.Client) {
+	m.mu.Lock()
+	d := m.disconnectedOnce
+	m.mu.Unlock()
+	if d {
+		log.Printf("%s: connected", m)
+	}
+}
+
+func (m *mqttState) onConnectionLost(c mqtt.Client, err error) {
+	log.Printf("%s: connection lost: %v", m, err)
+	m.mu.Lock()
+	m.disconnectedOnce = true
+	m.mu.Unlock()
+}
+
 // mqttBus main purpose is to hide the complex thing that paho.mqtt.golang is.
 //
 // This Bus is thread safe.
 type mqttBus struct {
 	client mqtt.Client
-	server string
 	wg     sync.WaitGroup
-
-	mu               sync.Mutex
-	disconnectedOnce bool
+	ms     *mqttState
 }
 
 func (m *mqttBus) String() string {
-	return fmt.Sprintf("MQTT{%s}", m.server)
+	return m.ms.String()
 }
 
 // Close gracefully closes the connection to the server.
@@ -87,6 +118,9 @@ func (m *mqttBus) Close() error {
 }
 
 func (m *mqttBus) Publish(msg Message, qos QOS) error {
+	if m.client == nil {
+		return errors.New("client closed")
+	}
 	// Quick local check.
 	p, err := parseTopic(msg.Topic)
 	if err != nil {
@@ -104,7 +138,14 @@ func (m *mqttBus) Publish(msg Message, qos QOS) error {
 	return token.Error()
 }
 
+// Subscribe implements Bus.
+//
+// One big difference with New() implementation is that subscribing twice to
+// the same topic will fail.
 func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c chan<- Message) error {
+	if m.client == nil {
+		return errors.New("client closed")
+	}
 	// Quick local check.
 	if _, err := parseTopic(topicQuery); err != nil {
 		return err
@@ -114,18 +155,20 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	defer cancel()
 	done := ctx.Done()
 	m.wg.Add(1)
+	defer m.wg.Done()
 	token := m.client.Subscribe(topicQuery, byte(qos), func(client mqtt.Client, msg mqtt.Message) {
+		select {
+		case <-done:
+			return
+		default:
+		}
 		select {
 		case <-done:
 			// Context was canceled, skip on sending message.
 		case c <- Message{Topic: msg.Topic(), Payload: msg.Payload(), Retained: msg.Retained()}:
 		}
 	})
-	go func() {
-		token.Wait()
-		cancel()
-	}()
-
+	token.Wait()
 	if err := token.Error(); err != nil {
 		return err
 	}
@@ -137,30 +180,9 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	}
 	<-done
 
-	token = m.client.Unsubscribe(topicQuery)
-	token.Wait()
-	m.wg.Done()
-	return token.Error()
-}
-
-func (m *mqttBus) unexpectedMessage(c mqtt.Client, msg mqtt.Message) {
-	log.Printf("%s: Unexpected message %s", m, msg.Topic())
-}
-
-func (m *mqttBus) onConnect(c mqtt.Client) {
-	m.mu.Lock()
-	d := m.disconnectedOnce
-	m.mu.Unlock()
-	if d {
-		log.Printf("%s: connected", m)
-	}
-}
-
-func (m *mqttBus) onConnectionLost(c mqtt.Client, err error) {
-	log.Printf("%s: connection lost: %v", m, err)
-	m.mu.Lock()
-	m.disconnectedOnce = true
-	m.mu.Unlock()
+	token2 := m.client.Unsubscribe(topicQuery)
+	token2.Wait()
+	return token2.Error()
 }
 
 var _ Bus = &mqttBus{}
