@@ -549,7 +549,12 @@ func (t *token) WaitTimeout(d time.Duration) bool {
 }
 
 func (t *token) Error() error {
-	return t.err
+	select {
+	case <-t.done:
+		return t.err
+	default:
+		return nil
+	}
 }
 
 func newToken() *token {

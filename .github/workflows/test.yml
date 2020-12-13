@@ -168,8 +168,8 @@ jobs:
     - name: 'Cleanup'
       run: rm coverage.txt
       # Don't run go test -race if anything failed, to speed up the results.
-#    - name: 'Check: go test -race'
-#      run: go test -timeout=40s -race ./...
+    - name: 'Check: go test -race'
+      run: go test -timeout=40s -race ./...
     - name: 'Check: go test -bench=.'
       run: go test -timeout=40s -bench=. -benchtime=100ms -cpu=1 ./...
 

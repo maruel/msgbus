@@ -156,7 +156,12 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	done := ctx.Done()
 	m.wg.Add(1)
 	defer m.wg.Done()
+	// This is cheezy but there's a race condition where the subscription
+	// function can be called after subscription is canceled.
+	mu := sync.RWMutex{}
 	token := m.client.Subscribe(topicQuery, byte(qos), func(client mqtt.Client, msg mqtt.Message) {
+		mu.RLock()
+		defer mu.RUnlock()
 		select {
 		case <-done:
 			return
@@ -170,6 +175,7 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	})
 	token.Wait()
 	if err := token.Error(); err != nil {
+		// We assume our subscribe function will never have been called.
 		return err
 	}
 
@@ -178,11 +184,18 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	case <-done:
 	case c <- Message{}:
 	}
+
+	// Wait for the context to be canceled.
 	<-done
 
 	token2 := m.client.Unsubscribe(topicQuery)
 	token2.Wait()
-	return token2.Error()
+	// Sadly, there could still be subscribe function about to be called. We need
+	// to make sure they are not leaking.
+	mu.Lock()
+	err := token2.Error()
+	mu.Unlock()
+	return err
 }
 
 var _ Bus = &mqttBus{}

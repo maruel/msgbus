@@ -63,6 +63,7 @@ func TestLog_Subscribe(t *testing.T) {
 			t.Error(err)
 		}
 	}()
+	// Wait for subscription to be active.
 	<-c
 	if err := b.Publish(Message{Topic: "bar", Payload: []byte("yo")}, ExactlyOnce); err != nil {
 		t.Fatal(err)

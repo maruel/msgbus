@@ -38,13 +38,14 @@ func (l *logging) Publish(msg Message, qos QOS) error {
 
 func (l *logging) Subscribe(ctx context.Context, topicQuery string, qos QOS, c chan<- Message) error {
 	log.Printf("%s.Subscribe(%s, %s)", l.Bus, topicQuery, qos)
+	l.wg.Add(1)
+	defer l.wg.Done()
+
 	var err error
 	c2 := make(chan Message)
-	l.wg.Add(2)
 	go func() {
 		err = l.Bus.Subscribe(ctx, topicQuery, qos, c2)
 		close(c2)
-		l.wg.Done()
 	}()
 	done := ctx.Done()
 loop:
@@ -62,6 +63,9 @@ loop:
 		case c <- msg:
 		}
 	}
-	l.wg.Done()
+	// Drain to make sure the channel is closed, so that the goroutine is
+	// completed.
+	for range c2 {
+	}
 	return err
 }

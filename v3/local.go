@@ -79,19 +79,25 @@ func (l *local) Publish(msg Message, qos QOS) error {
 		// Synchronous.
 		var wg sync.WaitGroup
 		for i := range subscribers {
+			s := subscribers[i]
 			wg.Add(1)
-			subscribers[i].wg.Add(1)
-			go func(s *subscription) {
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
 				s.publish(msg)
 				wg.Done()
-			}(subscribers[i])
+			}()
 		}
 		wg.Wait()
 	} else {
 		// Asynchronous.
 		for i := range subscribers {
-			subscribers[i].wg.Add(1)
-			go subscribers[i].publish(msg)
+			s := subscribers[i]
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.publish(msg)
+			}()
 		}
 	}
 	return nil
@@ -109,6 +115,8 @@ func (l *local) Subscribe(ctx context.Context, topicQuery string, qos QOS, c cha
 	defer cancel()
 	done := ctx.Done()
 	s := &subscription{topicQuery: p, c: c, done: done, cancel: cancel}
+	s.wg.Add(1)
+	defer s.wg.Done()
 	msgs := func() []*Message {
 		l.mu.Lock()
 		defer l.mu.Unlock()
@@ -124,14 +132,12 @@ func (l *local) Subscribe(ctx context.Context, topicQuery string, qos QOS, c cha
 	}()
 
 	// Synchronously send an empty message to signal subscription is completed.
-	s.wg.Add(1)
 	if !s.publish(Message{}) {
 		return nil
 	}
 
 	// Synchronously send retained topics.
 	for _, msg := range msgs {
-		s.wg.Add(1)
 		if !s.publish(*msg) {
 			return nil
 		}
@@ -171,10 +177,7 @@ type subscription struct {
 }
 
 // publish synchronously sends the message.
-//
-// s.wg.Add(1) must be called before.
 func (s *subscription) publish(msg Message) bool {
-	defer s.wg.Done()
 	// Sadly we have to do a quick check first if s.done is set but s.c closed,
 	// it may randomly crash with "panic: send on closed channel".
 	// Remove this and the unit tests will randomly crash.
