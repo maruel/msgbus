@@ -29,7 +29,7 @@ func TestNew_Publish_ephemeral_sync(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -39,7 +39,7 @@ func TestNew_Publish_ephemeral_sync(t *testing.T) {
 
 	go func() {
 		if err := b.Publish(Message{Topic: "foo", Payload: []byte("b")}, ExactlyOnce); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	if v := <-c; v.Topic != "foo" || string(v.Payload) != "b" {
@@ -64,7 +64,7 @@ func TestNew_Publish_ephemeral_async(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo", BestEffort, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -96,7 +96,7 @@ func TestNew_Subscribe_Close(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -122,7 +122,7 @@ func TestNew_Subscribe_blocked(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 
@@ -149,7 +149,7 @@ func TestNew_Subscribe_blocked_retained(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -176,7 +176,7 @@ func TestNew_Subscribe_array_compaction(t *testing.T) {
 	c := make(chan Message)
 	go func() {
 		if err := b.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 
@@ -188,7 +188,7 @@ func TestNew_Subscribe_array_compaction(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			if err := b.Subscribe(ctx2, "foo", ExactlyOnce, c); err != nil {
-				t.Fatal(err)
+				t.Error(err)
 			}
 		}()
 	}
@@ -257,7 +257,7 @@ func TestNew_Err(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "#", ExactlyOnce, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.

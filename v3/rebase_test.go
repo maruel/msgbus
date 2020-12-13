@@ -26,7 +26,7 @@ func TestRebasePub(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo/bar", BestEffort, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -105,7 +105,7 @@ func TestRebaseSub(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "bar", BestEffort, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -158,7 +158,7 @@ func TestRebaseSub_Subscribe_blocking(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "bar", BestEffort, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Do not drain c, the channel will still be closed.

@@ -33,7 +33,7 @@ func TestNew_Publish_ephemeral_sync(t *testing.T) {
 
 	go func() {
 		if err := b.Publish(Message{Topic: "foo", Payload: []byte("b")}, ExactlyOnce); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	if v := <-c; v.Topic != "foo" || string(v.Payload) != "b" {

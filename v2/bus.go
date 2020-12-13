@@ -164,7 +164,7 @@ func RebaseSub(b Bus, root string) Bus {
 // all topics are available, returns as soon as they are all retrieved.
 func Retained(b Bus, d time.Duration, topic ...string) (map[string][]byte, error) {
 	// Quick local check.
-	var ps []parsedTopic
+	//var ps []parsedTopic
 	for i, t := range topic {
 		p, err := parseTopic(t)
 		if err != nil {
@@ -178,7 +178,7 @@ func Retained(b Bus, d time.Duration, topic ...string) (map[string][]byte, error
 				return nil, fmt.Errorf("cannot specify topic %q twice", t)
 			}
 		}
-		ps = append(ps, p)
+		//ps = append(ps, p)
 	}
 
 	// Subscribes to all topics concurrently. This reduces the effect of round

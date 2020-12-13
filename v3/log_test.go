@@ -24,7 +24,7 @@ func TestLog(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "foo", BestEffort, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	// Wait for subscription to be live.
@@ -60,7 +60,7 @@ func TestLog_Subscribe(t *testing.T) {
 	go func() {
 		defer close(c)
 		if err := b.Subscribe(ctx, "#", BestEffort, c); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}()
 	<-c
