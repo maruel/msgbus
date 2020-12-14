@@ -7,4 +7,6 @@ tree, logging and retained topic retrieval.
 
 Wraps https://github.com/eclipse/paho.mqtt.golang but greatly simplifies it.
 
-[![GoDoc](https://godoc.org/github.com/maruel/msgbus?status.svg)](https://godoc.org/github.com/maruel/msgbus) [![Go Report Card](https://goreportcard.com/badge/github.com/maruel/msgbus)](https://goreportcard.com/report/github.com/maruel/msgbus)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/maruel/msgbus/v3)](https://pkg.go.dev/github.com/maruel/msgbus/v3)
+[![Coverage
+Status](https://codecov.io/gh/maruel/msgbus/graph/badge.svg)](https://codecov.io/gh/maruel/msgbus)
