@@ -53,11 +53,13 @@ jobs:
 
       # Checkout and print debugging information.
     - uses: actions/checkout@v2
+    - name: 'go version'
+      run: go version
+    - name: 'go env'
+      run: go env
     - name: "Debug (posix)"
       if: always() && matrix.os != 'windows-latest'
       run: |
-        echo GOPATH = $GOPATH
-        echo GOROOT = $GOROOT
         echo HOME = $HOME
         echo GITHUB_WORKSPACE = $GITHUB_WORKSPACE
         echo PATH = $PATH
@@ -78,8 +80,6 @@ jobs:
       if: always() && matrix.os == 'windows-latest'
       shell: cmd
       run: |
-        echo GOPATH = %GOPATH%
-        echo GOROOT = %GOROOT%
         echo USERPROFILE = %USERPROFILE%
         echo GITHUB_WORKSPACE = %GITHUB_WORKSPACE%
         echo PATH = %PATH%
@@ -170,8 +170,8 @@ jobs:
       # Don't run go test -race if anything failed, to speed up the results.
     - name: 'Check: go test -race'
       run: go test -timeout=40s -race ./...
-    - name: 'Check: go test -bench=.'
-      run: go test -timeout=40s -bench=. -benchtime=100ms -cpu=1 ./...
+    - name: 'Check: go test -bench .'
+      run: go test -timeout=40s -bench . -benchtime=100ms -cpu=1 ./...
 
     - name: "Check: tree is clean (posix)"
       # TODO(maruel): Find a way to enable this check on Windows.
