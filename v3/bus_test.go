@@ -37,7 +37,7 @@ func TestRetained(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l, err := Retained(b, time.Millisecond, "bar", "baz")
+	l, err := Retained(b, 50*time.Millisecond, "bar", "baz")
 	if err != nil {
 		t.Fatal(l, err)
 	}

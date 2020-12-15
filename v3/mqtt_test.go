@@ -252,7 +252,7 @@ func TestNewMQTT_Publish_Retained(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := map[string][]byte{"foo": []byte("yo")}
-	if l, err := Retained(b, time.Millisecond, "foo"); err != nil || !reflect.DeepEqual(l, expected) {
+	if l, err := Retained(b, 50*time.Millisecond, "foo"); err != nil || !reflect.DeepEqual(l, expected) {
 		t.Fatal(l, err)
 	}
 	// Deleted retained message.
@@ -260,7 +260,7 @@ func TestNewMQTT_Publish_Retained(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Just enough time to "wait" but not enough to make this test too slow.
-	if l, err := Retained(b, time.Millisecond, "foo"); err != nil || len(l) != 0 {
+	if l, err := Retained(b, 50*time.Millisecond, "foo"); err != nil || len(l) != 0 {
 		t.Fatal(l, err)
 	}
 
@@ -305,7 +305,7 @@ func TestNewMQTT_Err(t *testing.T) {
 
 	cancel()
 
-	if l, err := Retained(b, time.Millisecond, ""); err == nil || len(l) != 0 {
+	if l, err := Retained(b, 50*time.Millisecond, ""); err == nil || len(l) != 0 {
 		t.Fatal("bad topic")
 	}
 

@@ -44,7 +44,7 @@ func TestRebasePub(t *testing.T) {
 	cancel()
 
 	expected := map[string][]byte{"foo/bar": []byte("yo")}
-	if l, err := Retained(b, time.Millisecond, "foo/bar"); err != nil || !reflect.DeepEqual(l, expected) {
+	if l, err := Retained(b, 50*time.Millisecond, "foo/bar"); err != nil || !reflect.DeepEqual(l, expected) {
 		t.Fatal(l, err)
 	}
 	if s := b.(fmt.Stringer).String(); s != "LocalBus/foo/" {
@@ -126,8 +126,6 @@ func TestRebaseSub(t *testing.T) {
 	cancel()
 
 	expected := map[string][]byte{"bar": []byte("yo")}
-	// It needs to be long enough to work with a fairly oversubscribed machine.
-	// It's especially problematic on github actions on Windows.
 	if l, err := Retained(b, 50*time.Millisecond, "bar"); err != nil || !reflect.DeepEqual(l, expected) {
 		t.Fatal(l, err)
 	}
