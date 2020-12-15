@@ -17,6 +17,7 @@ import (
 )
 
 func TestNew_Publish_ephemeral_sync(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New()
@@ -56,6 +57,7 @@ func TestNew_Publish_ephemeral_sync(t *testing.T) {
 }
 
 func TestNew_Publish_ephemeral_async(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New()
@@ -88,6 +90,7 @@ func TestNew_Publish_ephemeral_async(t *testing.T) {
 }
 
 func TestNew_Subscribe_Close(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New()
@@ -114,6 +117,7 @@ func TestNew_Subscribe_Close(t *testing.T) {
 }
 
 func TestNew_Subscribe_blocked(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New()
@@ -138,6 +142,7 @@ func TestNew_Subscribe_blocked(t *testing.T) {
 }
 
 func TestNew_Subscribe_blocked_retained(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New()
@@ -169,6 +174,7 @@ func TestNew_Subscribe_blocked_retained(t *testing.T) {
 }
 
 func TestNew_Subscribe_array_compaction(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b := New()
@@ -211,6 +217,7 @@ func TestNew_Subscribe_array_compaction(t *testing.T) {
 }
 
 func TestNew_Publish_Retained(t *testing.T) {
+	t.Parallel()
 	// Without subscription.
 	b := New()
 	if err := b.Publish(Message{Topic: "foo", Payload: []byte("yo"), Retained: true}, ExactlyOnce); err != nil {
@@ -280,6 +287,7 @@ func TestNew_Err(t *testing.T) {
 }
 
 func TestNew_String(t *testing.T) {
+	t.Parallel()
 	if s := New().(fmt.Stringer).String(); s != "LocalBus" {
 		t.Fatal(s)
 	}

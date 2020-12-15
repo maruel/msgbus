@@ -20,6 +20,7 @@ import (
 )
 
 func TestNewMQTT_fail(t *testing.T) {
+	t.Parallel()
 	_, err := NewMQTT("", "client", "user", "pass", Message{Topic: "status", Payload: []byte("dead"), Retained: true}, true)
 	if err == nil {
 		t.Fatal("invalid host")
@@ -27,6 +28,7 @@ func TestNewMQTT_fail(t *testing.T) {
 }
 
 func TestNewMQTT_Publish_ephemeral_sync(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
@@ -69,6 +71,7 @@ func TestNewMQTT_Publish_ephemeral_sync(t *testing.T) {
 }
 
 func TestNewMQTT_Publish_ephemeral_async(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
@@ -104,6 +107,7 @@ func TestNewMQTT_Publish_ephemeral_async(t *testing.T) {
 }
 
 func TestNewMQTT_Subscribe_Close(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
@@ -133,6 +137,7 @@ func TestNewMQTT_Subscribe_Close(t *testing.T) {
 }
 
 func TestNewMQTT_Subscribe_blocked(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
@@ -153,6 +158,7 @@ func TestNewMQTT_Subscribe_blocked(t *testing.T) {
 }
 
 func TestNewMQTT_Subscribe_blocked_retained(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
@@ -189,6 +195,7 @@ func TestNewMQTT_Subscribe_blocked_retained(t *testing.T) {
 
 /*
 func TestNewMQTT_Subscribe_array_compaction(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
@@ -235,6 +242,7 @@ func TestNewMQTT_Subscribe_array_compaction(t *testing.T) {
 */
 
 func TestNewMQTT_Publish_Retained(t *testing.T) {
+	t.Parallel()
 	// Without subscription.
 	b, err := newMQTT(&mqttState{}, newClientFake(t))
 	if err != nil {
@@ -313,6 +321,7 @@ func TestNewMQTT_Err(t *testing.T) {
 }
 
 func TestNewMQTT_String(t *testing.T) {
+	t.Parallel()
 	// Manually construct a fake connected instance to test methods.
 	b, err := newMQTT(&mqttState{server: "foo"}, newClientFake(t))
 	if err != nil {

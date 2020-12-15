@@ -18,6 +18,7 @@ import (
 )
 
 func TestMQTT_Integration(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skipf("skipping on %s", runtime.GOOS)
 	}

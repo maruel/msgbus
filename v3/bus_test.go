@@ -12,6 +12,7 @@ import (
 )
 
 func TestQOS_String(t *testing.T) {
+	t.Parallel()
 	data := []struct {
 		v        QOS
 		expected string
@@ -27,6 +28,7 @@ func TestQOS_String(t *testing.T) {
 }
 
 func TestRetained(t *testing.T) {
+	t.Parallel()
 	b := New()
 	if err := b.Publish(Message{Topic: "bar", Payload: []byte("yo"), Retained: true}, BestEffort); err != nil {
 		t.Fatal(err)
@@ -50,6 +52,7 @@ func TestRetained(t *testing.T) {
 }
 
 func TestRetained_Err(t *testing.T) {
+	t.Parallel()
 	if _, err := Retained(nil, 0, ""); err == nil || err.Error() != "invalid topic \"\": empty topic" {
 		t.Fatalf("expected invalid topic; got %v", err)
 	}
@@ -64,6 +67,7 @@ func TestRetained_Err(t *testing.T) {
 //
 
 func TestParseTopicGood(t *testing.T) {
+	t.Parallel()
 	data := []string{
 		"$",
 		"/",
@@ -85,6 +89,7 @@ func TestParseTopicGood(t *testing.T) {
 }
 
 func TestParseTopicBad(t *testing.T) {
+	t.Parallel()
 	data := []string{
 		"",
 		"sport/tennis#",
@@ -101,6 +106,7 @@ func TestParseTopicBad(t *testing.T) {
 }
 
 func TestMatchSuccess(t *testing.T) {
+	t.Parallel()
 	data := [][2]string{
 		{"sport/tennis/#", "sport/tennis"},
 		{"sport/tennis/#", "sport/tennis/player1"},
@@ -121,6 +127,7 @@ func TestMatchSuccess(t *testing.T) {
 }
 
 func TestMatchFail(t *testing.T) {
+	t.Parallel()
 	data := [][2]string{
 		{"sport/tennis/#", ""},
 		{"sport/tennis/#", "sport"},

@@ -16,6 +16,7 @@ import (
 )
 
 func TestRebasePub(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := RebasePub(New(), "foo")
@@ -58,6 +59,7 @@ func TestRebasePub(t *testing.T) {
 }
 
 func TestRebasePub_empty(t *testing.T) {
+	t.Parallel()
 	b := New()
 	b2, err := RebasePub(b, "")
 	if err != nil {
@@ -82,6 +84,7 @@ func TestRebasePub_Err(t *testing.T) {
 }
 
 func TestRebasePub_Publish_Err(t *testing.T) {
+	t.Parallel()
 	b, err := RebasePub(New(), "foo")
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +98,7 @@ func TestRebasePub_Publish_Err(t *testing.T) {
 }
 
 func TestRebaseSub(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := RebaseSub(New(), "foo")
@@ -122,7 +126,9 @@ func TestRebaseSub(t *testing.T) {
 	cancel()
 
 	expected := map[string][]byte{"bar": []byte("yo")}
-	if l, err := Retained(b, time.Millisecond, "bar"); err != nil || !reflect.DeepEqual(l, expected) {
+	// It needs to be long enough to work with a fairly oversubscribed machine.
+	// It's especially problematic on github actions on Windows.
+	if l, err := Retained(b, 50*time.Millisecond, "bar"); err != nil || !reflect.DeepEqual(l, expected) {
 		t.Fatal(l, err)
 	}
 	if s := b.(fmt.Stringer).String(); s != "LocalBus/foo/" {
@@ -137,6 +143,7 @@ func TestRebaseSub(t *testing.T) {
 }
 
 func TestRebaseSub_empty(t *testing.T) {
+	t.Parallel()
 	b := New()
 	b2, err := RebaseSub(b, "")
 	if err != nil {
@@ -148,6 +155,7 @@ func TestRebaseSub_empty(t *testing.T) {
 }
 
 func TestRebaseSub_Subscribe_blocking(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	b, err := RebaseSub(New(), "foo")
@@ -173,6 +181,7 @@ func TestRebaseSub_Subscribe_blocking(t *testing.T) {
 }
 
 func TestRebaseSub_Err(t *testing.T) {
+	t.Parallel()
 	if b, err := RebaseSub(New(), "a\000"); b != nil || err == nil {
 		t.Fatal("bad topic")
 	}
@@ -182,6 +191,7 @@ func TestRebaseSub_Err(t *testing.T) {
 }
 
 func TestRebaseSub_Subscribe_Err(t *testing.T) {
+	t.Parallel()
 	b, err := RebaseSub(New(), "foo")
 	if err != nil {
 		t.Fatal(err)
