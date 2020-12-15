@@ -159,6 +159,9 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	// This is cheezy but there's a race condition where the subscription
 	// function can be called after subscription is canceled.
 	mu := sync.RWMutex{}
+	// Block the subscription callback from sending anything on the channel until
+	// the signal message below is sent.
+	mu.Lock()
 	token := m.client.Subscribe(topicQuery, byte(qos), func(client mqtt.Client, msg mqtt.Message) {
 		mu.RLock()
 		defer mu.RUnlock()
@@ -175,6 +178,7 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	})
 	token.Wait()
 	if err := token.Error(); err != nil {
+		mu.Unlock()
 		// We assume our subscribe function will never have been called.
 		return err
 	}
@@ -184,6 +188,8 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	case <-done:
 	case c <- Message{}:
 	}
+	// It's now safe for the subscription function to send messages.
+	mu.Unlock()
 
 	// Wait for the context to be canceled.
 	<-done
