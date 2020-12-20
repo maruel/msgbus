@@ -6,6 +6,7 @@ package msgbus
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -26,20 +27,8 @@ func TestMQTT_Integration(t *testing.T) {
 		t.Skip("skipping test in short mode")
 	}
 
-	c := exec.Command("docker", "images", "-q", image)
-	b := bytes.Buffer{}
-	c.Stdout = &b
-	if err := c.Run(); err != nil {
-		t.Fatal("docker is not accessible")
-	}
-	if b.Len() == 0 {
-		b.Reset()
-		c = exec.Command("docker", "pull", "-q", image)
-		c.Stdout = &b
-		c.Stderr = &b
-		if err := c.Run(); err != nil {
-			t.Fatalf("failed to pull %s: %s\n%s", image, err, b.String())
-		}
+	if len(run(t, "docker", "images", "-q", image)) == 0 {
+		run(t, "docker", "pull", "-q", image)
 	} else {
 		t.Logf("found docker image %s", image)
 	}
@@ -53,7 +42,6 @@ func TestMQTT_Integration(t *testing.T) {
 			t.Fatal(err2)
 		}
 	}()
-
 	t.Logf("using path %s", tmpDir)
 	if err = os.MkdirAll(filepath.Join(tmpDir, "config"), 0755); err != nil {
 		t.Fatal(err)
@@ -61,39 +49,86 @@ func TestMQTT_Integration(t *testing.T) {
 	if err = ioutil.WriteFile(filepath.Join(tmpDir, "config", "mosquitto.conf"), []byte(mosquittoConfig), 0644); err != nil {
 		t.Fatal(err)
 	}
+
 	p := getFreePort(t)
 	t.Logf("using port %d", p)
-	args := []string{"run", "-p", fmt.Sprintf("127.0.0.1:%d:1883", p), "-v", fmt.Sprintf("%s:/mosquitto", tmpDir), "--detach", image}
-	t.Logf("docker %s", strings.Join(args, " "))
-	c = exec.Command("docker", args...)
-	b.Reset()
-	c.Stdout = &b
-	c.Stderr = &b
-	if err = c.Run(); err != nil {
-		t.Fatalf("failed to start %s: %s\nLog: %s", c.Args, err, b.String())
-	}
-	dockerid := strings.TrimSpace(b.String())
+	dockerid := strings.TrimSpace(run(t, "docker", "run", "-p", fmt.Sprintf("127.0.0.1:%d:1883", p), "-v", fmt.Sprintf("%s:/mosquitto", tmpDir), "--detach", image))
 	t.Logf("docker id %s", dockerid)
-	defer func() {
-		if err2 := exec.Command("docker", "rm", "-f", dockerid).Run(); err2 != nil {
-			t.Fatalf("failed to stop %s: %s", image, err2)
-		}
-	}()
+	defer run(t, "docker", "rm", "-f", dockerid)
 
-	bus, err := NewMQTT(fmt.Sprintf("tcp://127.0.0.1:%d", p), "test", "", "", Message{}, true)
+	addr := fmt.Sprintf("127.0.0.1:%d", p)
+	if l, err := net.Listen("tcp", addr); l != nil {
+		l.Close()
+		t.Log("port check success")
+	} else if err == nil {
+		t.Fatal("Expected port to be bound")
+	}
+
+	t.Log("connecting")
+	bus, err := NewMQTT("tcp://"+addr, "test", "", "", Message{}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// TODO:
-	// Subscribe
-	// Publish
-	// (retrieve)
-	// Stop
-	// Start
-	// Publish
-	// (retrieve?)
+	// Will run:
+	// - Subscribe
+	// - Publish
+	// - Retrieve
+	// - Stop server
+	// - Start
+	// - Publish
+	// - Retrieve
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := make(chan Message)
+	go func() {
+		defer close(c)
+		if err := bus.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
+			t.Errorf("Subscribe: %s", err)
+		}
+		t.Log("subscription done")
+	}()
+	t.Log("Wait for subscription to be live")
+	if msg := <-c; len(msg.Topic) != 0 || len(msg.Payload) != 0 || msg.Retained {
+		t.Fatal(msg)
+	}
+
+	t.Log("Publishing")
+	if err := bus.Publish(Message{Topic: "foo", Payload: make([]byte, 1)}, BestEffort); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Reading")
+	if i := <-c; i.Topic != "foo" {
+		t.Fatalf("%s != foo", i.Topic)
+	}
+
+	run(t, "docker", "stop", "-t", "60", dockerid)
+
+	// Binding the socket should now work.
+	if l, _ := net.Listen("tcp", addr); l == nil {
+		t.Fatal("Expected port to be available")
+	} else if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	run(t, "docker", "start", dockerid)
+	t.Log("Publishing")
+	if err := bus.Publish(Message{Topic: "foo", Payload: make([]byte, 1)}, ExactlyOnce); err != nil {
+		t.Fatal(err)
+	}
+
+	// TODO(maruel): Broken.
+	/*
+		t.Log("Reading")
+		if i := <-c; i.Topic != "foo" {
+			t.Fatalf("%s != foo", i.Topic)
+		}
+	*/
+
+	t.Log("Closing")
+	cancel()
+	<-c
 	if err := bus.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -129,4 +164,16 @@ func getFreePort(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func run(t *testing.T, args ...string) string {
+	t.Logf("Running: %s", strings.Join(args, " "))
+	cmd := exec.Command(args[0], args[1:]...)
+	b := bytes.Buffer{}
+	cmd.Stdout = &b
+	cmd.Stderr = &b
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to run %v\n%s", args, &b)
+	}
+	return b.String()
 }
