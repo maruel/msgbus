@@ -34,6 +34,10 @@ import (
 // https://godoc.org/github.com/eclipse/paho.mqtt.golang#ClientOptions.AddBroker
 // for the accepted server format.
 func NewMQTT(server, clientID, user, password string, will Message, order bool) (Bus, error) {
+	return newMQTT(server, clientID, user, password, will, order, mqtt.NewClient)
+}
+
+func newMQTT(server, clientID, user, password string, will Message, order bool, f func(*mqtt.ClientOptions) mqtt.Client) (*mqttBus, error) {
 	opts := mqtt.NewClientOptions().AddBroker(server)
 	opts.ClientID = clientID
 	// Default 10min is too slow.
@@ -44,15 +48,12 @@ func NewMQTT(server, clientID, user, password string, will Message, order bool) 
 	if len(will.Topic) != 0 {
 		opts.SetBinaryWill(will.Topic, will.Payload, byte(ExactlyOnce), true)
 	}
-	ms := &mqttState{server: server}
-	opts.OnConnect = ms.onConnect
-	opts.OnConnectionLost = ms.onConnectionLost
-	opts.DefaultPublishHandler = ms.unexpectedMessage
-	return newMQTT(ms, mqtt.NewClient(opts))
-}
 
-func newMQTT(ms *mqttState, c mqtt.Client) (Bus, error) {
-	m := &mqttBus{client: c, ms: ms}
+	m := &mqttBus{server: server}
+	opts.OnConnect = m.onConnect
+	opts.OnConnectionLost = m.onConnectionLost
+	opts.DefaultPublishHandler = m.unexpectedMessage
+	m.client = f(opts)
 	token := m.client.Connect()
 	token.Wait()
 	if err := token.Error(); err != nil {
@@ -61,49 +62,21 @@ func newMQTT(ms *mqttState, c mqtt.Client) (Bus, error) {
 	return m, nil
 }
 
-//
-
-type mqttState struct {
-	server           string
-	mu               sync.Mutex
-	disconnectedOnce bool
-}
-
-func (m *mqttState) String() string {
-	return fmt.Sprintf("MQTT{%s}", m.server)
-}
-
-func (m *mqttState) unexpectedMessage(c mqtt.Client, msg mqtt.Message) {
-	log.Printf("%s: Unexpected message %s", m, msg.Topic())
-}
-
-func (m *mqttState) onConnect(c mqtt.Client) {
-	m.mu.Lock()
-	d := m.disconnectedOnce
-	m.mu.Unlock()
-	if d {
-		log.Printf("%s: connected", m)
-	}
-}
-
-func (m *mqttState) onConnectionLost(c mqtt.Client, err error) {
-	log.Printf("%s: connection lost: %v", m, err)
-	m.mu.Lock()
-	m.disconnectedOnce = true
-	m.mu.Unlock()
-}
-
 // mqttBus main purpose is to hide the complex thing that paho.mqtt.golang is.
 //
 // This Bus is thread safe.
 type mqttBus struct {
+	server string
 	client mqtt.Client
-	wg     sync.WaitGroup
-	ms     *mqttState
+
+	wg sync.WaitGroup
+
+	mu               sync.Mutex
+	disconnectedOnce bool
 }
 
 func (m *mqttBus) String() string {
-	return m.ms.String()
+	return fmt.Sprintf("MQTT{%s}", m.server)
 }
 
 // Close gracefully closes the connection to the server.
@@ -202,6 +175,26 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	err := token2.Error()
 	mu.Unlock()
 	return err
+}
+
+func (m *mqttBus) unexpectedMessage(c mqtt.Client, msg mqtt.Message) {
+	log.Printf("%s: Unexpected message %s", m, msg.Topic())
+}
+
+func (m *mqttBus) onConnect(c mqtt.Client) {
+	m.mu.Lock()
+	d := m.disconnectedOnce
+	m.mu.Unlock()
+	if d {
+		log.Printf("%s: connected", m)
+	}
+}
+
+func (m *mqttBus) onConnectionLost(c mqtt.Client, err error) {
+	log.Printf("%s: connection lost: %v", m, err)
+	m.mu.Lock()
+	m.disconnectedOnce = true
+	m.mu.Unlock()
 }
 
 var _ Bus = &mqttBus{}

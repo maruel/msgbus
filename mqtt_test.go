@@ -31,7 +31,7 @@ func TestNewMQTT_Publish_ephemeral_sync(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestNewMQTT_Publish_ephemeral_async(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestNewMQTT_Subscribe_Close(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestNewMQTT_Subscribe_blocked(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestNewMQTT_Subscribe_blocked_retained(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestNewMQTT_Subscribe_array_compaction(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestNewMQTT_Subscribe_array_compaction(t *testing.T) {
 func TestNewMQTT_Publish_Retained(t *testing.T) {
 	t.Parallel()
 	// Without subscription.
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestNewMQTT_Err(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	b, err := newMQTT(&mqttState{}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,28 +322,25 @@ func TestNewMQTT_Err(t *testing.T) {
 
 func TestNewMQTT_String(t *testing.T) {
 	t.Parallel()
-	// Manually construct a fake connected instance to test methods.
-	b, err := newMQTT(&mqttState{server: "foo"}, newClientFake(t))
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := b.(fmt.Stringer).String(); s != "MQTT{foo}" {
+	if s := b.String(); s != "MQTT{server}" {
 		t.Fatal(s)
 	}
 }
 
-func TestMQTTState(t *testing.T) {
+func TestMQTT_unexpected(t *testing.T) {
 	if !testing.Verbose() {
 		log.SetOutput(ioutil.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
-	m := mqttState{}
-	c := newClientFake(t)
-	msg := &message{}
-	m.unexpectedMessage(c, msg)
-	m.onConnect(c)
-	m.onConnectionLost(c, errors.New("oh"))
-	m.onConnect(c)
+	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.unexpectedMessage(b.client, &message{})
 }
 
 //
@@ -358,11 +355,13 @@ type clientFake struct {
 	subscriptions map[string]*subscription
 }
 
-func newClientFake(t *testing.T) *clientFake {
-	return &clientFake{
-		bus:           New(),
-		t:             t,
-		subscriptions: map[string]*subscription{},
+func newClientFake(t *testing.T) func(*mqtt.ClientOptions) mqtt.Client {
+	return func(*mqtt.ClientOptions) mqtt.Client {
+		return &clientFake{
+			bus:           New(),
+			t:             t,
+			subscriptions: map[string]*subscription{},
+		}
 	}
 }
 

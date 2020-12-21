@@ -57,10 +57,10 @@ func TestMQTT_Integration(t *testing.T) {
 	defer run(t, "docker", "rm", "-f", dockerid)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", p)
-	if l, err := net.Listen("tcp", addr); l != nil {
+	if l, err2 := net.Listen("tcp", addr); l != nil {
 		l.Close()
 		t.Log("port check success")
-	} else if err == nil {
+	} else if err2 == nil {
 		t.Fatal("Expected port to be bound")
 	}
 
