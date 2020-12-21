@@ -84,6 +84,7 @@ func TestMQTT_Integration(t *testing.T) {
 	c := make(chan Message)
 	go func() {
 		defer close(c)
+		t.Log("subscribing")
 		if err := bus.Subscribe(ctx, "foo", ExactlyOnce, c); err != nil {
 			t.Errorf("Subscribe: %s", err)
 		}
@@ -105,26 +106,16 @@ func TestMQTT_Integration(t *testing.T) {
 
 	run(t, "docker", "stop", "-t", "60", dockerid)
 
-	// Binding the socket should now work.
-	if l, _ := net.Listen("tcp", addr); l == nil {
-		t.Fatal("Expected port to be available")
-	} else if err := l.Close(); err != nil {
-		t.Fatal(err)
-	}
-
 	run(t, "docker", "start", dockerid)
 	t.Log("Publishing")
 	if err := bus.Publish(Message{Topic: "foo", Payload: make([]byte, 1)}, ExactlyOnce); err != nil {
 		t.Fatal(err)
 	}
 
-	// TODO(maruel): Broken.
-	/*
-		t.Log("Reading")
-		if i := <-c; i.Topic != "foo" {
-			t.Fatalf("%s != foo", i.Topic)
-		}
-	*/
+	t.Log("Reading")
+	if i := <-c; i.Topic != "foo" {
+		t.Fatalf("%s != foo", i.Topic)
+	}
 
 	t.Log("Closing")
 	cancel()
@@ -177,3 +168,12 @@ func run(t *testing.T, args ...string) string {
 	}
 	return b.String()
 }
+
+/*
+func init() {
+	mqtt.CRITICAL = log.New(os.Stderr, "MQTT CRITICAL: ", log.Lmicroseconds)
+	mqtt.ERROR = log.New(os.Stderr, "MQTT ERROR: ", log.Lmicroseconds)
+	mqtt.WARN = log.New(os.Stderr, "MQTT WARN:  ", log.Lmicroseconds)
+	mqtt.DEBUG = log.New(os.Stderr, "MQTT DEBUG: ", log.Lmicroseconds)
+}
+*/

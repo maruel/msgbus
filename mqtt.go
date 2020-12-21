@@ -45,11 +45,17 @@ func newMQTT(server, clientID, user, password string, will Message, order bool, 
 	opts.Order = order
 	opts.Username = user
 	opts.Password = password
+	// As of 1.3.0, it doesn't work reliably in the integration test, so
+	// implement it ourselves as a best effort.
+	//opts.ResumeSubs = true
 	if len(will.Topic) != 0 {
 		opts.SetBinaryWill(will.Topic, will.Payload, byte(ExactlyOnce), true)
 	}
 
-	m := &mqttBus{server: server}
+	m := &mqttBus{
+		server: server,
+		subs:   make(map[int]sub),
+	}
 	opts.OnConnect = m.onConnect
 	opts.OnConnectionLost = m.onConnectionLost
 	opts.DefaultPublishHandler = m.unexpectedMessage
@@ -72,7 +78,15 @@ type mqttBus struct {
 	wg sync.WaitGroup
 
 	mu               sync.Mutex
+	next             int
+	subs             map[int]sub
 	disconnectedOnce bool
+}
+
+type sub struct {
+	topicQuery string
+	fn         func(mqtt.Client, mqtt.Message)
+	qos        byte
 }
 
 func (m *mqttBus) String() string {
@@ -134,8 +148,7 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 	mu := sync.RWMutex{}
 	// Block the subscription callback from sending anything on the channel until
 	// the signal message below is sent.
-	mu.Lock()
-	token := m.client.Subscribe(topicQuery, byte(qos), func(client mqtt.Client, msg mqtt.Message) {
+	fn := func(client mqtt.Client, msg mqtt.Message) {
 		mu.RLock()
 		defer mu.RUnlock()
 		select {
@@ -148,13 +161,21 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 			// Context was canceled, skip on sending message.
 		case c <- Message{Topic: msg.Topic(), Payload: msg.Payload(), Retained: msg.Retained()}:
 		}
-	})
+	}
+	mu.Lock()
+	token := m.client.Subscribe(topicQuery, byte(qos), fn)
 	token.Wait()
 	if err := token.Error(); err != nil {
 		mu.Unlock()
 		// We assume our subscribe function will never have been called.
 		return err
 	}
+
+	m.mu.Lock()
+	i := m.next
+	m.next++
+	m.subs[i] = sub{topicQuery: topicQuery, fn: fn, qos: byte(qos)}
+	m.mu.Unlock()
 
 	// Signal that subscription is complete.
 	select {
@@ -166,6 +187,10 @@ func (m *mqttBus) Subscribe(ctx context.Context, topicQuery string, qos QOS, c c
 
 	// Wait for the context to be canceled.
 	<-done
+
+	m.mu.Lock()
+	delete(m.subs, i)
+	m.mu.Unlock()
 
 	token2 := m.client.Unsubscribe(topicQuery)
 	token2.Wait()
@@ -182,11 +207,23 @@ func (m *mqttBus) unexpectedMessage(c mqtt.Client, msg mqtt.Message) {
 }
 
 func (m *mqttBus) onConnect(c mqtt.Client) {
+	// This callback is called from a goroutine so we have no guarantee about the
+	// state of the connection.
 	m.mu.Lock()
 	d := m.disconnectedOnce
+	if d {
+		// Recreate all the current subscriptions while holding the lock.
+		for _, sub := range m.subs {
+			token := m.client.Subscribe(sub.topicQuery, sub.qos, sub.fn)
+			token.Wait()
+			if err := token.Error(); err != nil {
+				log.Printf("%s: Failed to resubscribe %s", m, sub.topicQuery)
+			}
+		}
+	}
 	m.mu.Unlock()
 	if d {
-		log.Printf("%s: connected", m)
+		log.Printf("%s: reconnected", m)
 	}
 }
 
