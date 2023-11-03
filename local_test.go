@@ -7,7 +7,7 @@ package msgbus
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"reflect"
@@ -243,7 +243,7 @@ func TestNew_Publish_Retained(t *testing.T) {
 
 func TestNew_Err(t *testing.T) {
 	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

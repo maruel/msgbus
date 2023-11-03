@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"reflect"
@@ -271,7 +271,7 @@ func TestNewMQTT_Publish_Retained(t *testing.T) {
 
 func TestNewMQTT_Err(t *testing.T) {
 	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -333,7 +333,7 @@ func TestNewMQTT_String(t *testing.T) {
 
 func TestMQTT_unexpected(t *testing.T) {
 	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
 	b, err := newMQTT("server", "clientID", "user", "password", Message{}, false, newClientFake(t))

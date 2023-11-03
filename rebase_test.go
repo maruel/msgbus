@@ -7,7 +7,7 @@ package msgbus
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"reflect"
@@ -72,7 +72,7 @@ func TestRebasePub_empty(t *testing.T) {
 
 func TestRebasePub_Err(t *testing.T) {
 	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
 	if b, err := RebasePub(New(), "a\000"); b != nil || err == nil {

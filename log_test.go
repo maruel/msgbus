@@ -6,7 +6,7 @@ package msgbus
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"testing"
@@ -14,7 +14,7 @@ import (
 
 func TestLog(t *testing.T) {
 	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -50,7 +50,7 @@ func TestLog(t *testing.T) {
 
 func TestLog_Subscribe(t *testing.T) {
 	if !testing.Verbose() {
-		log.SetOutput(ioutil.Discard)
+		log.SetOutput(io.Discard)
 		defer log.SetOutput(os.Stderr)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

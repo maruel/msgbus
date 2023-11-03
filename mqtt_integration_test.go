@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -33,20 +32,12 @@ func TestMQTT_Integration(t *testing.T) {
 		t.Logf("found docker image %s", image)
 	}
 
-	tmpDir, err := ioutil.TempDir("", "mqtt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err2 := os.RemoveAll(tmpDir); err2 != nil {
-			t.Fatal(err2)
-		}
-	}()
+	tmpDir := t.TempDir()
 	t.Logf("using path %s", tmpDir)
-	if err = os.MkdirAll(filepath.Join(tmpDir, "config"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, "config"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err = ioutil.WriteFile(filepath.Join(tmpDir, "config", "mosquitto.conf"), []byte(mosquittoConfig), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config", "mosquitto.conf"), []byte(mosquittoConfig), 0644); err != nil {
 		t.Fatal(err)
 	}
 
